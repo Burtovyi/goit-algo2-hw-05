@@ -2,13 +2,13 @@ import math
 import json
 import hashlib
 import time
-from typing import List, Set, Tuple
+from typing import Set, Tuple
 
 
 class HyperLogLog:
     def __init__(self, b: int = 14):
         """
-        b — кількість біт для індексації. 2^b — кількість реєстрів.
+        b — кількість бітів (кількість регістрів = 2^b). Зазвичай 12–16.
         """
         self.b = b
         self.m = 1 << b
@@ -30,8 +30,8 @@ class HyperLogLog:
 
     def add(self, value: str):
         x = self._hash(value)
-        j = x & (self.m - 1)  # перші b бітів
-        w = x >> self.b
+        j = x & (self.m - 1)        # індекс
+        w = x >> self.b             # залишок
         self.registers[j] = max(self.registers[j], self._rho(w))
 
     def _rho(self, w: int) -> int:
@@ -50,32 +50,39 @@ class HyperLogLog:
         return int(E)
 
 
-def load_log_file(file_path: str) -> List[dict]:
-    entries = []
+def load_log_lines(file_path: str):
+    """
+    Генератор, який читає великий лог-файл построково.
+    Ігнорує невалідні JSON рядки.
+    """
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             try:
-                obj = json.loads(line.strip())
-                entries.append(obj)
+                yield json.loads(line.strip())
             except json.JSONDecodeError:
                 continue
-    return entries
 
 
-def count_unique_ips_set(entries: List[dict]) -> Tuple[int, float]:
+def count_unique_ips_set(log_iterable) -> Tuple[int, float]:
+    """
+    Точний підрахунок унікальних IP за допомогою set.
+    """
     unique_ips: Set[str] = set()
     start = time.time()
-    for entry in entries:
+    for entry in log_iterable:
         ip = entry.get("remote_addr")
         if ip:
             unique_ips.add(ip)
     return len(unique_ips), time.time() - start
 
 
-def count_unique_ips_hll(entries: List[dict]) -> Tuple[int, float]:
+def count_unique_ips_hll(log_iterable) -> Tuple[int, float]:
+    """
+    Приблизний підрахунок унікальних IP за допомогою HyperLogLog.
+    """
     hll = HyperLogLog()
     start = time.time()
-    for entry in entries:
+    for entry in log_iterable:
         ip = entry.get("remote_addr")
         if ip:
             hll.add(ip)
@@ -84,10 +91,13 @@ def count_unique_ips_hll(entries: List[dict]) -> Tuple[int, float]:
 
 def compare_methods(file_path: str):
     print(f"Обробка файлу: {file_path}\n")
-    log_entries = load_log_file(file_path)
 
-    exact_count, exact_time = count_unique_ips_set(log_entries)
-    approx_count, approx_time = count_unique_ips_hll(log_entries)
+    # Два генератори — один для set, інший для HyperLogLog
+    log1 = load_log_lines(file_path)
+    exact_count, exact_time = count_unique_ips_set(log1)
+
+    log2 = load_log_lines(file_path)
+    approx_count, approx_time = count_unique_ips_hll(log2)
 
     print("Результати порівняння:")
     print(f"{'':<30}{'Точний підрахунок':<20}{'HyperLogLog':<15}")
@@ -96,4 +106,4 @@ def compare_methods(file_path: str):
 
 
 if __name__ == "__main__":
-    compare_methods("access.log")
+    compare_methods("/Users/kraven/Documents/GitHub/goit-algo2-hw-05/task02/access.log")
